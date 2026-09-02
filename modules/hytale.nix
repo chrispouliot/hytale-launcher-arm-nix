@@ -439,9 +439,9 @@ let
       gtk3 webkitgtk_4_1 glib glib-networking libsoup_3
       pango cairo gdk-pixbuf harfbuzz freetype fontconfig at-spi2-core dbus
       libglvnd mesa libdrm libxkbcommon wayland
-      xorg.libX11 xorg.libXcomposite xorg.libXdamage xorg.libXext xorg.libXfixes
-      xorg.libXrandr xorg.libXrender xorg.libXi xorg.libXcursor xorg.libXinerama
-      xorg.libXtst xorg.libxshmfence
+      libX11 libXcomposite libXdamage libXext libXfixes
+      libXrandr libXrender libXi libXcursor libXinerama
+      libXtst libxshmfence
       alsa-lib libpulseaudio nss nspr openssl expat cups zlib
     ]);
     pathsToLink = [ "/lib" ];
@@ -465,9 +465,9 @@ let
     paths = map lib.getLib (with pkgsx86; [
       glibc gcc.cc.lib
       icu openssl zlib expat dbus udev
-      xorg.libX11 xorg.libXext xorg.libXcursor xorg.libXi xorg.libXrandr xorg.libXfixes
-      xorg.libXrender xorg.libXinerama xorg.libXScrnSaver xorg.libXxf86vm
-      xorg.libXcomposite xorg.libXdamage xorg.libxshmfence xorg.libxcb
+      libX11 libXext libXcursor libXi libXrandr libXfixes
+      libXrender libXinerama libXScrnSaver libXxf86vm
+      libXcomposite libXdamage libxshmfence libxcb
       libxkbcommon wayland libdecor
       alsa-lib libpulseaudio libogg libvorbis libopus libpng libjpeg
       libbsd libunwind
