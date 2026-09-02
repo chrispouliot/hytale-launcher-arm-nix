@@ -16,21 +16,22 @@
     nixpkgs-fex.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
-  outputs = { self, ... }@inputs:
-    let
-      # The modules take `inputs` so they can import nixpkgs-fex for the
-      # emulator packages and the x86_64 guest userland.
-      mkModule = path: args: import path (args // { inherit inputs; });
-    in
-    {
-      nixosModules = {
-        # binfmt registrations + hook-capable shim (required by the Hytale module)
-        fex = mkModule ./modules/fex.nix;
-        # launcher, client, server, desktop entry
-        hytale = mkModule ./modules/hytale.nix;
-        default = {
-          imports = [ self.nixosModules.fex self.nixosModules.hytale ];
-        };
+  outputs = { self, nixpkgs-fex, ... }: {
+    nixosModules = {
+      # Everything: programs.hytale (which enables programs.fex on the patched
+      # FEX). Modules are imported by path so importing this together with
+      # the individual ones below is harmless.
+      default = {
+        imports = [ ./modules/hytale.nix ];
+        _module.args.hytaleArm = { nixpkgsFex = nixpkgs-fex; };
+      };
+
+      # binfmt registrations + hook-capable shim only (programs.fex.*), e.g.
+      # for Steam without Hytale. Same argument requirement as above.
+      fex = {
+        imports = [ ./modules/fex.nix ];
+        _module.args.hytaleArm = { nixpkgsFex = nixpkgs-fex; };
       };
     };
+  };
 }

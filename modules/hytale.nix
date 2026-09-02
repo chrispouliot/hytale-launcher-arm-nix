@@ -1,11 +1,14 @@
 # Hytale on aarch64 NixOS: x86_64 launcher + client under a patched FEX,
 # native aarch64 Java server. See ../README.md for the knobs.
-{ inputs, config, pkgs, lib, ... }:
+# `hytaleArm` is provided by the flake (see ../flake.nix).
+{ hytaleArm, config, pkgs, lib, ... }:
 
 let
-  # Same import as fex.nix -> identical store path -> the binfmt shim, the
-  # launcher and the FEXServer all run the same FEX build.
-  fexPkgs = import inputs.nixpkgs-fex { system = pkgs.stdenv.hostPlatform.system; };
+  # Same nixpkgs as fex.nix. The patched `fex` below runs the launcher, the
+  # client and their FEXServer; it never touches other x86 programs, which
+  # reach the binfmt shim's default (programs.fex.package) instead -- the
+  # wrapper's FEX_BINFMT_HOOK is what routes Hytale's process tree here.
+  fexPkgs = import hytaleArm.nixpkgsFex { system = pkgs.stdenv.hostPlatform.system; };
   # FEX 2608 + one JIT option (HalfBarrierTSOAlways, env FEX_HALFBARRIERTSOALWAYS):
   # emit scalar TSO loads/stores directly as plain ldur/stur + DMB -- the form
   # FEX's SIGBUS handler otherwise backpatches in after an unaligned
@@ -426,7 +429,7 @@ let
   # Configs/Ubuntu_24_04.json), and nix x86 libs can't be mixed into it
   # (glibc 2.42 vs 2.39). Keep nixpkgs-fex on nixos-unstable so every one of
   # these is a cache hit; nothing here is ever built locally.
-  pkgsx86 = import inputs.nixpkgs-fex { system = "x86_64-linux"; };
+  pkgsx86 = import hytaleArm.nixpkgsFex { system = "x86_64-linux"; };
   x86Libs = pkgs.buildEnv {
     name = "hytale-launcher-x86-libs";
     # DT_NEEDED + dlopen set of the launcher (same set the community FHS
@@ -924,6 +927,8 @@ let
   cfg = config.programs.hytale;
 in
 {
+  imports = [ ./fex.nix ];
+
   options.programs.hytale = {
     enable = lib.mkEnableOption "Hytale on aarch64: x86_64 launcher and client under FEX, native server";
 
@@ -943,6 +948,17 @@ in
       '';
     };
 
+    fexPackage = lib.mkOption {
+      type = lib.types.package;
+      readOnly = true;
+      description = ''
+        The patched FEX-2608 build Hytale runs on (read-only). Other x86
+        programs use `programs.fex.package` (stock nixpkgs FEX by default);
+        set `programs.fex.package = config.programs.hytale.fexPackage` to run
+        them on this build as well.
+      '';
+    };
+
     coredumps = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -957,9 +973,18 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    programs.hytale.fexPackage = fex;
+
+    # The launcher starts the client and the server via execve of x86_64
+    # binaries; those go through the kernel's binfmt shim, whose hook is what
+    # swaps in the native server JRE and sets up the client on the patched
+    # FEX. The shim's own default interpreter (programs.fex.package) stays
+    # stock: it is only reached by processes outside Hytale's tree.
+    programs.fex.enable = lib.mkDefault true;
+
     assertions = [{
-      assertion = config.programs.fex.enable or false;
-      message = "programs.hytale needs programs.fex.enable = true (the x86_64 launcher runs through the FEX binfmt shim).";
+      assertion = config.programs.fex.enable;
+      message = "programs.hytale needs programs.fex.enable (the launcher starts the client through the FEX binfmt shim).";
     }];
 
     environment.systemPackages = [ hytale hytaleDesktop hytaleIcon ];

@@ -1,14 +1,14 @@
 # FEX for the whole system: binfmt_misc registrations for x86_64 and i386 ELF
 # binaries through a small shim, optional global RootFS config for users.
-{ inputs, config, pkgs, lib, ... }:
+# `hytaleArm` is provided by the flake (nixosModules.default sets
+# _module.args.hytaleArm = { nixpkgsFex = <nixpkgs with fex 2608>; }).
+{ hytaleArm, config, pkgs, lib, ... }:
 
 let
   cfg = config.programs.fex;
 
-  # Same nixpkgs as the Hytale module -> identical FEX store path -> the binfmt
-  # shim, the launcher and the FEXServer all run the same FEX build.
-  fexPkgs = import inputs.nixpkgs-fex { system = pkgs.stdenv.hostPlatform.system; };
-  fex = fexPkgs.fex;
+  fexPkgs = import hytaleArm.nixpkgsFex { system = pkgs.stdenv.hostPlatform.system; };
+  fex = cfg.package;
 
   fexConfig = pkgs.writeText "fex-config.json" (builtins.toJSON {
     Config = { RootFS = "${cfg.rootfs}"; };
@@ -60,6 +60,19 @@ in
 {
   options.programs.fex = {
     enable = lib.mkEnableOption "FEX binfmt registrations (FEX-x86_64, FEX-x86) with the hook-capable shim";
+
+    package = lib.mkOption {
+      type = lib.types.package;
+      default = fexPkgs.fex;
+      defaultText = lib.literalExpression "nixpkgs-fex.fex";
+      description = ''
+        The FEX build used by the binfmt shim's default path (and as
+        `FEXInterpreter` on PATH), i.e. by x86 programs outside Hytale's
+        process tree. Hytale routes its own tree to its patched build through
+        the shim's hook regardless of this setting; opt other programs into
+        that build with `programs.fex.package = config.programs.hytale.fexPackage`.
+      '';
+    };
 
     rootfs = lib.mkOption {
       type = lib.types.nullOr (lib.types.either lib.types.path lib.types.package);

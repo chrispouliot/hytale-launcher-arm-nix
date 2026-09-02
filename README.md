@@ -3,7 +3,8 @@
 Hytale on **aarch64 NixOS**. Tested on an ASUS Zenbook A14 (Snapdragon X2 Elite,
 Adreno X2‑90, Mesa 26.2). It plays.
 
-- **Launcher** (Go/Wails, x86_64): runs under FEX through the system binfmt shim.
+- **Launcher** (Go/Wails, x86_64): runs under the same patched FEX, with its
+  own FEX config directory and FEXServer.
 - **Client** (.NET 10 NativeAOT, x86_64): runs under a **patched FEX** with a
   nixpkgs x86_64 userland and FEX's GL thunk (native Adreno driver).
 - **Server** (Java): runs **natively** (Temurin 25, aarch64) — the jar's
@@ -27,10 +28,7 @@ usual. You need a Hytale account like anyone else.
       system = "aarch64-linux";
       modules = [
         hytale-arm.nixosModules.default
-        {
-          programs.fex.enable = true;      # binfmt for x86_64/i386 ELF (required)
-          programs.hytale.enable = true;   # launcher, client, server, desktop entry
-        }
+        { programs.hytale.enable = true; }
       ];
     };
   };
@@ -54,6 +52,18 @@ Two things are pinned, differently:
 The build recipe drifting far from 2608 is the residual risk (e.g. a cmake flag
 2608 does not know); that would fail at build time, not at run time.
 
+`programs.hytale.enable` also turns on `programs.fex` — the FEX‑x86_64/FEX‑x86
+binfmt registrations — because the launcher starts the client and the server
+through the kernel's binfmt shim, and the shim's hook is what puts the client
+on its emulator setup and swaps in the native server JRE.
+
+Hytale is siloed: its whole process tree runs on the patched FEX‑2608 with its
+own config directory and FEXServer. Everything else (Steam…) reaches the
+shim's default interpreter, `programs.fex.package`, which is **stock nixpkgs
+FEX** — newer, stripped, and not carrying patches validated on one game. To
+run other programs on the patched build anyway:
+`programs.fex.package = config.programs.hytale.fexPackage;`.
+
 `nixos-rebuild switch` builds FEX (with patches), an aarch64 quiche and
 the Java server wrapper — the first build takes a while. The x86_64 client
 userland (glibc, X11, audio, codecs…) is plain nixpkgs `x86_64-linux` and comes
@@ -65,7 +75,9 @@ work). Afterwards: `hytale`, or the *Hytale* desktop entry.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `programs.fex.enable` | `false` | FEX‑x86_64 / FEX‑x86 binfmt registrations through a hook‑capable shim. Do not combine with `boot.binfmt.emulatedSystems = [ "x86_64-linux" ]` (it registers the wrong name). |
+| `programs.fex.enable` | `false` (`true` with Hytale) | FEX‑x86_64 / FEX‑x86 binfmt registrations through a hook‑capable shim. Do not combine with `boot.binfmt.emulatedSystems = [ "x86_64-linux" ]` (it registers the wrong name). |
+| `programs.fex.package` | nixpkgs `fex` | The FEX used by the shim's default path and as `FEXInterpreter` (programs outside Hytale). |
+| `programs.hytale.fexPackage` | read‑only | The patched FEX‑2608 build Hytale runs on; assign it to `programs.fex.package` to opt other programs in. |
 | `programs.fex.rootfs` | `null` | Global RootFS (e.g. FEX's Ubuntu image) for *other* x86 programs such as Steam; written to `~/.fex-emu/Config.json` for `programs.fex.users`. Hytale does not use it. |
 | `programs.fex.users` | `[ ]` | Users that get that config file. |
 | `programs.fex.binBash` | `false` | Symlink `/bin/bash` (Steam's scripts assume it). |
@@ -110,8 +122,8 @@ shell overrides both the declared value and the built‑in default.
 - **Client: playable.** Menu, singleplayer world load, gameplay, audio.
 - **Server:** the whole chain works natively (QUIC listener, mutual TLS,
   RocksDB, asset streaming).
-- The launcher and the client both run on the patched FEX; `programs.fex`'s
-  binfmt for *other* x86 programs uses stock FEX from nixpkgs.
+- Launcher, client and their FEXServer run the patched build; the binfmt
+  default for other programs stays stock.
 - Not tried: the Wayland video path (no window so far); a Vulkan renderer, if
   the client has one.
 - box64 was the first attempt and was dropped: it reconstructs the guest
@@ -175,8 +187,8 @@ clean with the fix), and the box64 patches. The other FEX patches and the SDL3
 ## Layout
 
 ```
-flake.nix           nixosModules.{fex,hytale,default}
-modules/fex.nix     binfmt shim + registrations, optional global RootFS
+flake.nix           nixosModules.{default,fex}
+modules/fex.nix     binfmt shim + registrations, FEX package, optional global RootFS
 modules/hytale.nix  everything Hytale (large; the FEX override is at the top)
 patches/fex/        FEX patches (see table)
 upstream/           bug report, minimal patch, reproducer; box64 patches
