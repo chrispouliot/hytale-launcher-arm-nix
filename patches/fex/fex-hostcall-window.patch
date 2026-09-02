@@ -1,0 +1,139 @@
+--- a/Source/Tools/LinuxEmulation/LinuxSyscalls/SignalDelegator.cpp
++++ b/Source/Tools/LinuxEmulation/LinuxSyscalls/SignalDelegator.cpp
+@@ -107,6 +107,12 @@
+ #ifdef ARCHITECTURE_arm64
+   Thread->CurrentFrame->State.rip = CTX->RestoreRIPFromHostPC(Thread, ArchHelpers::Context::GetPc(ucontext));
+
++  if (IgnoreMask & 0x80000000U) {
++    // Host-call window (thunk, syscall, CPUID, ...): the JIT already spilled the
++    // complete guest state and the host registers hold the callee's garbage.
++    return;
++  }
++
+   for (size_t i = 0; i < Config.SRAGPRCount; i++) {
+     const uint8_t SRAIdxMap = Config.SRAGPRMapping[i];
+     if (IgnoreMask & (1U << SRAIdxMap)) {
+@@ -305,7 +311,8 @@
+       // We need to spill SRA but only some of it, since some values have already been spilled
+       // Lower 16 bits tells us which registers are already spilled to the context
+       // So we ignore spilling those ones
+-      IgnoreMask = Frame->InSyscallInfo & 0xFFFF;
++      // Bit 31: the JIT spilled everything (GPRs, FPRs, flags) before calling out to host code.
++      IgnoreMask = Frame->InSyscallInfo & 0x8000FFFF;
+     } else {
+       // We must spill everything
+       IgnoreMask = 0;
+--- a/FEXCore/Source/Interface/Core/JIT/BranchOps.cpp
++++ b/FEXCore/Source/Interface/Core/JIT/BranchOps.cpp
+@@ -297,7 +297,8 @@
+   // Still without overwriting registers that matter
+   // 16bit LoadConstant to be a single instruction
+   // This gives the signal handler a value to check to see if we are in a syscall at all
+-  LoadConstant(ARMEmitter::Size::i64Bit, ARMEmitter::Reg::r0, GPRSpillMask & 0xFFFF);
++  // Bit 31: FPRs and flags were spilled as well (FPRSpillMask is ~0).
++  LoadConstant(ARMEmitter::Size::i64Bit, ARMEmitter::Reg::r0, (GPRSpillMask & 0xFFFF) | 0x80000000ULL);
+   str(ARMEmitter::XReg::x0, STATE, offsetof(FEXCore::Core::CpuStateFrame, InSyscallInfo));
+
+   uint64_t SPOffset = AlignUp(FEXCore::HLE::SyscallArguments::MAX_ARGS * 8, 16);
+@@ -358,6 +359,11 @@
+                           .NZCV = false,
+                         });
+
++  // Everything is in State now. Tell the signal handler so that a signal landing in
++  // this host-call window does not spill the host callee's leftover registers over it.
++  LoadConstant(ARMEmitter::Size::i64Bit, TMP1, 0x8000FFFFULL);
++  str(TMP1, STATE, offsetof(FEXCore::Core::CpuStateFrame, InSyscallInfo));
++
+   PushDynamicRegs(TMP1);
+
+   mov(ARMEmitter::Size::i64Bit, ARMEmitter::Reg::r0, GetReg(Op->ArgPtr));
+@@ -375,6 +381,7 @@
+   FillStaticRegs({
+     .NZCV = false,
+   });
++  str(ARMEmitter::XReg::zr, STATE, offsetof(FEXCore::Core::CpuStateFrame, InSyscallInfo));
+ }
+
+ DEF_OP(ValidateCode) {
+@@ -429,6 +436,11 @@
+   PushDynamicRegs(TMP4);
+   SpillStaticRegs(TMP4);
+
++  // Everything is in State now. Tell the signal handler so that a signal landing in
++  // this host-call window does not spill the host callee's leftover registers over it.
++  LoadConstant(ARMEmitter::Size::i64Bit, TMP4, 0x8000FFFFULL);
++  str(TMP4, STATE, offsetof(FEXCore::Core::CpuStateFrame, InSyscallInfo));
++
+   // Arguments are passed as follows:
+   // X0: Thread
+   // X1: RIP
+@@ -444,6 +456,7 @@
+     blr(ARMEmitter::Reg::r2);
+   }
+   FillStaticRegs();
++  str(ARMEmitter::XReg::zr, STATE, offsetof(FEXCore::Core::CpuStateFrame, InSyscallInfo));
+
+   // Fix the stack and any values that were stepped on
+   PopDynamicRegs();
+@@ -459,6 +472,11 @@
+   PushDynamicRegs(TMP4);
+   SpillStaticRegs(TMP4);
+
++  // Everything is in State now. Tell the signal handler so that a signal landing in
++  // this host-call window does not spill the host callee's leftover registers over it.
++  LoadConstant(ARMEmitter::Size::i64Bit, TMP4, 0x8000FFFFULL);
++  str(TMP4, STATE, offsetof(FEXCore::Core::CpuStateFrame, InSyscallInfo));
++
+   // x0 = CPUID Handler
+   // x1 = CPUID Function
+   // x2 = CPUID Leaf
+@@ -482,6 +500,7 @@
+   }
+
+   FillStaticRegs();
++  str(ARMEmitter::XReg::zr, STATE, offsetof(FEXCore::Core::CpuStateFrame, InSyscallInfo));
+
+   PopDynamicRegs();
+
+@@ -499,6 +518,11 @@
+   PushDynamicRegs(TMP4);
+   SpillStaticRegs(TMP4);
+
++  // Everything is in State now. Tell the signal handler so that a signal landing in
++  // this host-call window does not spill the host callee's leftover registers over it.
++  LoadConstant(ARMEmitter::Size::i64Bit, TMP4, 0x8000FFFFULL);
++  str(TMP4, STATE, offsetof(FEXCore::Core::CpuStateFrame, InSyscallInfo));
++
+   mov(ARMEmitter::Size::i32Bit, ARMEmitter::Reg::r1, GetReg(Op->Function));
+
+   // x0 = CPUID Handler
+@@ -516,6 +540,7 @@
+   }
+
+   FillStaticRegs();
++  str(ARMEmitter::XReg::zr, STATE, offsetof(FEXCore::Core::CpuStateFrame, InSyscallInfo));
+
+   PopDynamicRegs();
+
+--- a/FEXCore/Source/Interface/Core/JIT/MiscOps.cpp
++++ b/FEXCore/Source/Interface/Core/JIT/MiscOps.cpp
+@@ -325,6 +325,11 @@
+   PushDynamicRegs(TMP1);
+   SpillStaticRegs(TMP1);
+
++  // Everything is in State now. Tell the signal handler so that a signal landing in
++  // this host-call window does not spill the host callee's leftover registers over it.
++  LoadConstant(ARMEmitter::Size::i64Bit, TMP1, 0x8000FFFFULL);
++  str(TMP1, STATE, offsetof(FEXCore::Core::CpuStateFrame, InSyscallInfo));
++
+   mov(ARMEmitter::Size::i64Bit, ARMEmitter::Reg::r0, STATE.R());
+   mov(ARMEmitter::Size::i64Bit, ARMEmitter::Reg::r1, IR::OpSizeToSize(Op->Size));
+
+@@ -352,6 +357,7 @@
+ #endif
+
+   FillStaticRegs();
++  str(ARMEmitter::XReg::zr, STATE, offsetof(FEXCore::Core::CpuStateFrame, InSyscallInfo));
+   PopDynamicRegs();
+ }
+

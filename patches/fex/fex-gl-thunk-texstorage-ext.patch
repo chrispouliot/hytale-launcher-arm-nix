@@ -1,0 +1,17 @@
+--- a/ThunkLibs/libGL/libGL_interface.cpp
++++ b/ThunkLibs/libGL/libGL_interface.cpp
+@@ -5055,6 +5055,14 @@
+ struct fex_gen_config<glTexStorage3D> {};
+ template<>
+ struct fex_gen_config<glTexStorage3DMultisample> {};
++// GL_EXT_texture_storage (advertised by Mesa; returning NULL for these makes
++// callers that trust the extension string jump to 0).
++template<>
++struct fex_gen_config<glTexStorage1DEXT> {};
++template<>
++struct fex_gen_config<glTexStorage2DEXT> {};
++template<>
++struct fex_gen_config<glTexStorage3DEXT> {};
+ template<>
+ struct fex_gen_config<glTexStorageMem1DEXT> {};
+ template<>

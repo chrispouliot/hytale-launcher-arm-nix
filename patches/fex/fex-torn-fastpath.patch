@@ -1,0 +1,37 @@
+--- a/FEXCore/Source/Interface/Core/JIT/BranchOps.cpp
++++ b/FEXCore/Source/Interface/Core/JIT/BranchOps.cpp
+@@ -187,13 +187,22 @@
+ #endif
+   } else {
+     ARMEmitter::ForwardLabel SkipFullLookup;
++    ARMEmitter::ForwardLabel NoCallRetMatch;
++    ARMEmitter::ForwardLabel NoL1Match;
+     auto RipReg = GetReg(Op->NewRIP);
+
++    // Both fast paths below read a (guest RIP, host address) pair with a single ldp
++    // while another thread may be clearing it (L1 entries are overwritten word by
++    // word during invalidation, and the call-ret stack is zeroed with madvise).
++    // A torn read can pair a still-matching RIP with an already-zeroed host
++    // address; only take the fast path if the host address is non-zero.
+     if (Op->Hint == IR::BranchHint::Return) {
+       // First try to pop from the call-ret stack, otherwise follow the normal path (but ending in a ret)
+       ldp<ARMEmitter::IndexType::POST>(TMP1, TMP2, REG_CALLRET_SP, 0x10);
+       sub(TMP1, TMP1, RipReg.X());
+-      (void)cbz(ARMEmitter::Size::i64Bit, TMP1, &SkipFullLookup);
++      (void)cbnz(ARMEmitter::Size::i64Bit, TMP1, &NoCallRetMatch);
++      (void)cbnz(ARMEmitter::Size::i64Bit, TMP2, &SkipFullLookup);
++      (void)Bind(&NoCallRetMatch);
+     }
+
+     // L1 Cache
+@@ -208,7 +217,9 @@
+
+     // Note: sub+cbnz used over cmp+br to preserve flags.
+     sub(TMP1, TMP1, RipReg.X());
+-    (void)cbz(ARMEmitter::Size::i64Bit, TMP1, &SkipFullLookup);
++    (void)cbnz(ARMEmitter::Size::i64Bit, TMP1, &NoL1Match);
++    (void)cbnz(ARMEmitter::Size::i64Bit, TMP2, &SkipFullLookup);
++    (void)Bind(&NoL1Match);
+     ldr(TMP2, STATE, offsetof(FEXCore::Core::CpuStateFrame, Pointers.DispatcherLoopTop));
+     str(RipReg.X(), STATE, offsetof(FEXCore::Core::CpuStateFrame, State.rip));
+

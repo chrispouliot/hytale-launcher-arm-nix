@@ -1,0 +1,20 @@
+--- a/src/libtools/threads.c
++++ b/src/libtools/threads.c
+@@ -991,7 +991,16 @@
+ 	if(sig==0 && thread!=(void*)pthread_self())
+ 		return get_thread(thread)?0:ESRCH;
+ 	#endif
+-	return pthread_kill((pthread_t)thread, sig);
++	// A NULL handle would make glibc dereference it with all signals blocked
++	// (unhandleable SIGSEGV). Report it as "no such thread" instead, and say so.
++	if(thread==NULL) {
++		printf_log(LOG_NONE, "%04d|Warning: pthread_kill(NULL, %d) from %p -> ESRCH\n", GetTID(), sig, (void*)pthread_self());
++		return ESRCH;
++	}
++	int ret = pthread_kill((pthread_t)thread, sig);
++	if(ret && ret!=ESRCH && ret!=EAGAIN)
++		printf_log(LOG_NONE, "%04d|Warning: pthread_kill(%p, %d) from %p returned %d\n", GetTID(), thread, sig, (void*)pthread_self(), ret);
++	return ret;
+ }
+
+ EXPORT int my_pthread_kill_old(x64emu_t* emu, void* thread, int sig)

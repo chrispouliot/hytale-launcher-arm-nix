@@ -1,0 +1,21 @@
+--- a/Source/Tools/LinuxEmulation/LinuxSyscalls/SignalDelegator.cpp
++++ b/Source/Tools/LinuxEmulation/LinuxSyscalls/SignalDelegator.cpp
+@@ -794,6 +794,18 @@
+   SignalHandler.HostAction.restorer = sigrestore;
+ #endif
+
++  // FEX's own synchronous handlers (SIGSEGV/SIGBUS/SIGILL/pause) run host code
++  // that may enter signal-deferring sections while the JIT's registers are still
++  // live and unspilled (e.g. the unaligned-access backpatcher). An asynchronous
++  // guest signal nesting inside such a handler gets deferred and is later
++  // delivered from a host-code PC, so the guest signal frame is built from the
++  // stale thread state. Block everything except the other required signals for
++  // the duration of these handlers; the kernel redelivers on return, in JIT
++  // context, where the state can be spilled correctly.
++  if (SignalHandler.Required.load(std::memory_order_relaxed)) {
++    SignalHandler.HostAction.sa_mask = ~0ULL;
++  }
++
+   // Walk the signals we have that are required and make sure to remove it from the mask
+   // This'll likely be SIGILL, SIGBUS, SIG63
+

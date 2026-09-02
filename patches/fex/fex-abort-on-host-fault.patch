@@ -1,0 +1,22 @@
+--- a/Source/Tools/LinuxEmulation/LinuxSyscalls/SignalDelegator.cpp
++++ b/Source/Tools/LinuxEmulation/LinuxSyscalls/SignalDelegator.cpp
+@@ -340,6 +340,19 @@
+     }
+   }
+
++  {
++    // A synchronous fault whose PC is neither JIT code nor the dispatcher is a
++    // fault in FEX's own host code (or a thunk's host library). Handing it to
++    // the guest resumes the guest past the syscall/thunk while the host frame is
++    // abandoned mid-operation (locks held, tracking half-updated). Die here so
++    // the core carries the real host frames.
++    const auto* HostSigInfo = static_cast<const siginfo_t*>(info);
++    const bool Synchronous = (Signal == SIGSEGV || Signal == SIGBUS || Signal == SIGILL || Signal == SIGFPE) && HostSigInfo->si_code > 0;
++    if (Synchronous && !WasInJIT && !IsAddressInDispatcher(OldPC)) {
++      abort();
++    }
++  }
++
+   uint64_t OldGuestSP = Frame->State.gregs[FEXCore::X86State::REG_RSP];
+   uint64_t NewGuestSP = OldGuestSP;
+

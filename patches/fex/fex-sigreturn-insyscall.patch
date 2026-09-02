@@ -1,0 +1,75 @@
+--- a/Source/Tools/LinuxEmulation/LinuxSyscalls/SignalDelegator/GuestFramesManagement.cpp
++++ b/Source/Tools/LinuxEmulation/LinuxSyscalls/SignalDelegator/GuestFramesManagement.cpp
+@@ -127,12 +127,17 @@
+   auto* guest_uctx = reinterpret_cast<FEXCore::x86_64::ucontext_t*>(Context->UContextLocation);
+   [[maybe_unused]] auto* guest_siginfo = reinterpret_cast<siginfo_t*>(Context->SigInfoLocation);
+
++  // Restore the InSyscallInfo that was current when the signal was delivered.
++  // Unconditionally: the guest's rt_sigreturn is itself a syscall op that set
++  // the marker, and returning straight to the delivery context skips its
++  // clearing epilogue. Leaving it set makes the next signal that lands in JIT
++  // code skip spilling the live registers (including RSP) and build its frame
++  // from stale state one call level up -- on top of live stack data.
++  Frame->InSyscallInfo = Context->InSyscallInfo;
++
+   // If the guest modified the RIP then we need to take special precautions here
+   if (Context->OriginalRIP != guest_uctx->uc_mcontext.gregs[FEXCore::x86_64::FEX_REG_RIP] || Context->FaultToTopAndGeneratedException) {
+
+-    // Restore previous `InSyscallInfo` structure.
+-    Frame->InSyscallInfo = Context->InSyscallInfo;
+-
+     // Hack! Go back to the top of the dispatcher top
+     // This is only safe inside the JIT rather than anything outside of it
+     ArchHelpers::Context::SetPc(ucontext, Config.AbsoluteLoopTopAddressFillSRA);
+@@ -208,11 +213,16 @@
+ void SignalDelegator::RestoreFrame_ia32(FEXCore::Core::InternalThreadState* Thread, ArchHelpers::Context::ContextBackup* Context,
+                                         FEXCore::Core::CpuStateFrame* Frame, void* ucontext) {
+   SigFrame_i32* guest_uctx = reinterpret_cast<SigFrame_i32*>(Context->UContextLocation);
++  // Restore the InSyscallInfo that was current when the signal was delivered.
++  // Unconditionally: the guest's rt_sigreturn is itself a syscall op that set
++  // the marker, and returning straight to the delivery context skips its
++  // clearing epilogue. Leaving it set makes the next signal that lands in JIT
++  // code skip spilling the live registers (including RSP) and build its frame
++  // from stale state one call level up -- on top of live stack data.
++  Frame->InSyscallInfo = Context->InSyscallInfo;
++
+   // If the guest modified the RIP then we need to take special precautions here
+   if (Context->OriginalRIP != guest_uctx->sc.ip || Context->FaultToTopAndGeneratedException) {
+-    // Restore previous `InSyscallInfo` structure.
+-    Frame->InSyscallInfo = Context->InSyscallInfo;
+-
+     // Hack! Go back to the top of the dispatcher top
+     // This is only safe inside the JIT rather than anything outside of it
+     ArchHelpers::Context::SetPc(ucontext, Config.AbsoluteLoopTopAddressFillSRA);
+@@ -286,12 +296,17 @@
+ void SignalDelegator::RestoreRTFrame_ia32(FEXCore::Core::InternalThreadState* Thread, ArchHelpers::Context::ContextBackup* Context,
+                                           FEXCore::Core::CpuStateFrame* Frame, void* ucontext) {
+   RTSigFrame_i32* guest_uctx = reinterpret_cast<RTSigFrame_i32*>(Context->UContextLocation);
++  // Restore the InSyscallInfo that was current when the signal was delivered.
++  // Unconditionally: the guest's rt_sigreturn is itself a syscall op that set
++  // the marker, and returning straight to the delivery context skips its
++  // clearing epilogue. Leaving it set makes the next signal that lands in JIT
++  // code skip spilling the live registers (including RSP) and build its frame
++  // from stale state one call level up -- on top of live stack data.
++  Frame->InSyscallInfo = Context->InSyscallInfo;
++
+   // If the guest modified the RIP then we need to take special precautions here
+   if (Context->OriginalRIP != guest_uctx->uc.uc_mcontext.gregs[FEXCore::x86::FEX_REG_EIP] || Context->FaultToTopAndGeneratedException) {
+
+-    // Restore previous `InSyscallInfo` structure.
+-    Frame->InSyscallInfo = Context->InSyscallInfo;
+-
+     // Hack! Go back to the top of the dispatcher top
+     // This is only safe inside the JIT rather than anything outside of it
+     ArchHelpers::Context::SetPc(ucontext, Config.AbsoluteLoopTopAddressFillSRA);
+--- a/Source/Tools/LinuxEmulation/LinuxSyscalls/SyscallsSMCTracking.cpp
++++ b/Source/Tools/LinuxEmulation/LinuxSyscalls/SyscallsSMCTracking.cpp
+@@ -121,7 +121,7 @@
+       // If we are not in a single-instruction block, and the SMC write address could intersect with the current block,
+       // reconstruct the context and repeat the faulting instruction as a single-instruction block so any SMC it performs
+       // is immediately picked up.
+-      ThreadObject->SignalInfo.Delegator->SpillSRA(Thread, ucontext, Thread->CurrentFrame->InSyscallInfo & 0xFFFF);
++      ThreadObject->SignalInfo.Delegator->SpillSRA(Thread, ucontext, Thread->CurrentFrame->InSyscallInfo & 0x8000FFFF);
+
+       // Adjust context to return to the dispatcher, reloading SRA from thread state
+       const auto& Config = ThreadObject->SignalInfo.Delegator->GetConfig();

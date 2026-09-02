@@ -1,0 +1,41 @@
+--- a/src/wrapped/wrappedlibc.c
++++ b/src/wrapped/wrappedlibc.c
+@@ -4989,22 +4989,27 @@
+
+ EXPORT size_t my_strlcpy(x64emu_t* emu, void* dst, void* src, size_t l)
+ {
++    // strlcpy writes min(strlen(src), l-1)+1 bytes, never l bytes:
++    // callers may pass a size larger than the space that is actually left
++    // (e.g. SDL3 SDL_GetGamepadMappings), so padding to l corrupts the heap.
++    size_t n = strlen(src);
+     if (l > 0) {
+-        strncpy(dst, src, l-1);
+-        ((char*)dst)[l-1] = '\0';
++        size_t c = (n < l-1) ? n : l-1;
++        memcpy(dst, src, c);
++        ((char*)dst)[c] = '\0';
+     }
+-    return strlen(src);
++    return n;
+ }
+ EXPORT size_t my_strlcat(x64emu_t* emu, void* dst, void* src, size_t l)
+ {
+-    if (l == 0)
+-        return strlen(src);
+-    size_t s = strlen(dst);
+-    if(s>=l)
+-        return s + strlen(src);
+-    strncat(dst, src, l-s-1);
+-    ((char*)dst)[l-1] = '\0';
+-    return s+strlen(src);
++    size_t n = strlen(src);
++    size_t s = strnlen(dst, l);
++    if (s == l)
++        return l + n;
++    size_t c = (n < l-s-1) ? n : l-s-1;
++    memcpy((char*)dst+s, src, c);
++    ((char*)dst)[s+c] = '\0';
++    return s + n;
+ }
+
+ EXPORT int my_register_printf_specifier(x64emu_t* emu, int c, void* f1, void* f2)

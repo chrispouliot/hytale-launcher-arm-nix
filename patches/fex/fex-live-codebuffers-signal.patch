@@ -1,0 +1,106 @@
+--- a/FEXCore/Source/Interface/Core/SharedCodeBufferManager.h
++++ b/FEXCore/Source/Interface/Core/SharedCodeBufferManager.h
+@@ -19,6 +19,18 @@
+ }
+
+ namespace FEXCore::CPU {
++/**
++ * Registry of every live CodeBuffer's address range, written by CodeBuffer's
++ * constructor/destructor and read lock-free from the signal handler path.
++ *
++ * Old CodeBuffer versions stay executable for threads that have not moved to
++ * the latest one yet, so a signal can land on a host PC that is JIT code but
++ * not in the receiving thread's CurrentCodeBuffer. Classifying that as
++ * "not in JIT" skips the SRA spill and builds the guest signal frame from a
++ * stale RSP -- onto live stack data of the thread.
++ */
++bool IsAddressInAnyLiveCodeBuffer(uintptr_t Address);
++
+ struct CodeBuffer {
+   uint8_t* Ptr;
+   size_t AllocatedSize; // including guard page; see UsableSize()
+--- a/FEXCore/Source/Interface/Core/SharedCodeBufferManager.cpp
++++ b/FEXCore/Source/Interface/Core/SharedCodeBufferManager.cpp
+@@ -11,7 +11,56 @@
+ #include <FEXCore/Utils/PrctlUtils.h>
+ #endif
+
++#include <atomic>
++
+ namespace FEXCore::CPU {
++namespace {
++// Append-only slots; a freed buffer clears its slot. Readers run in signal
++// handlers, so no locks: each slot is (Begin, End) with End written last on
++// registration and Begin cleared first on removal.
++constexpr size_t MAX_LIVE_CODE_BUFFERS = 256;
++struct LiveCodeBufferRange {
++  std::atomic<uintptr_t> Begin {0};
++  std::atomic<uintptr_t> End {0};
++};
++LiveCodeBufferRange LiveCodeBuffers[MAX_LIVE_CODE_BUFFERS];
++
++void RegisterLiveCodeBuffer(uintptr_t Begin, uintptr_t End) {
++  for (auto& Slot : LiveCodeBuffers) {
++    uintptr_t Expected = 0;
++    if (Slot.Begin.compare_exchange_strong(Expected, Begin, std::memory_order_acq_rel)) {
++      Slot.End.store(End, std::memory_order_release);
++      return;
++    }
++  }
++  LogMan::Msg::EFmt("Live CodeBuffer registry is full");
++}
++
++void UnregisterLiveCodeBuffer(uintptr_t Begin) {
++  for (auto& Slot : LiveCodeBuffers) {
++    if (Slot.Begin.load(std::memory_order_acquire) == Begin) {
++      Slot.Begin.store(0, std::memory_order_release);
++      Slot.End.store(0, std::memory_order_release);
++      return;
++    }
++  }
++}
++} // namespace
++
++bool IsAddressInAnyLiveCodeBuffer(uintptr_t Address) {
++  for (const auto& Slot : LiveCodeBuffers) {
++    const uintptr_t Begin = Slot.Begin.load(std::memory_order_acquire);
++    if (!Begin) {
++      continue;
++    }
++    const uintptr_t End = Slot.End.load(std::memory_order_acquire);
++    if (Address >= Begin && Address < End) {
++      return true;
++    }
++  }
++  return false;
++}
++
+ static constexpr size_t INITIAL_CODE_SIZE = 1024 * 1024 * 16;
+ // We don't want to move above 128MB atm because that means we will have to encode longer jumps
+ static constexpr size_t MAX_CODE_SIZE = 1024 * 1024 * 128;
+@@ -34,9 +83,13 @@
+   FEXCore::Allocator::VirtualTHPControl(Ptr, Size, FEXCore::Allocator::THPControl::Enable);
+
+   LookupCache = fextl::make_unique<GuestToHostMap>();
++
++  // Usable range only: the guard page is never executed.
++  RegisterLiveCodeBuffer(reinterpret_cast<uintptr_t>(Ptr), LastPageAddr);
+ }
+
+ CodeBuffer::~CodeBuffer() {
++  UnregisterLiveCodeBuffer(reinterpret_cast<uintptr_t>(Ptr));
+   FEXCore::Allocator::VirtualFree(Ptr, AllocatedSize);
+ }
+
+--- a/FEXCore/Source/Interface/Context/Context.cpp
++++ b/FEXCore/Source/Interface/Context/Context.cpp
+@@ -53,7 +53,8 @@
+ }
+
+ bool FEXCore::Context::ContextImpl::IsAddressInCodeBuffer(FEXCore::Core::InternalThreadState* Thread, uintptr_t Address) const {
+-  return Thread->CPUBackend->IsAddressInCodeBuffer(Address) || CodeCache.IsAddressInMappedCodeBuffer(Address);
++  return Thread->CPUBackend->IsAddressInCodeBuffer(Address) || CodeCache.IsAddressInMappedCodeBuffer(Address) ||
++         FEXCore::CPU::IsAddressInAnyLiveCodeBuffer(Address);
+ }
+
+ bool FEXCore::Context::ContextImpl::RequiresRelocatableConstants() const {

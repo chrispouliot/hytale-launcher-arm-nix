@@ -1,0 +1,33 @@
+--- a/src/include/threads.h
++++ b/src/include/threads.h
+@@ -15,6 +15,7 @@
+ 	ulong_t 	hself;
+ 	int			cancel_cap, cancel_size;
+ 	void**		cancels;
++	int			dtor_deferred;	// thread_key destructor already re-armed once (see emuthread_destroy)
+ } emuthread_t;
+ int get_active_emu_workers(void);
+ void CleanStackSize(box64context_t* context);
+--- a/src/libtools/threads.c
++++ b/src/libtools/threads.c
+@@ -187,6 +187,20 @@
+ 	emuthread_t *et = (emuthread_t*)p;
+ 	if(!et)
+ 		return;
++	// At thread exit glibc runs pthread key destructors in key-creation order
++	// and box64's thread_key is the oldest key of the process, so this would
++	// free the emu -- and with it the guest TLS block -- before the guest's own
++	// key destructors run (e.g. .NET NativeAOT detaches its Thread, which lives
++	// in TLS, from a key destructor; running it on a fresh emu leaves a dangling
++	// entry in its thread list and the next GC suspension aborts). glibc has
++	// already cleared the key value when it calls a destructor, and re-runs
++	// destructors for keys re-armed during a round, so re-arm ours once and
++	// let the guest destructors of this round go first.
++	if(thread_key_ready && !et->dtor_deferred && pthread_getspecific(thread_key)==NULL) {
++		et->dtor_deferred = 1;
++		pthread_setspecific(thread_key, et);
++		return;
++	}
+ 	#ifdef BOX32
+ 	if(et->is32bits && !et->join && et->fnc)
+ 		to_hash_d(et->self);

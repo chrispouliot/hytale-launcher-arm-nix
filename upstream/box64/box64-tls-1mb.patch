@@ -1,0 +1,18 @@
+--- a/src/emu/x64tls.c
++++ b/src/emu/x64tls.c
+@@ -268,7 +268,14 @@
+ }
+ static int sizeTLSData(int s)
+ {
+-    uint32_t mask = 0xffff/*BOX64ENV(nogtk)?0xffff:0x1fff*/;    // x86_64 does the mapping per 64K blocks, so it makes sense to have it this large
++    // Round each thread's TLS block to 1MB (was 64K). When a library with a
++    // TLS segment is dlopen()ed after threads exist, crossing the rounding
++    // boundary makes resizeTLSData() relocate every live thread's block, which
++    // silently invalidates any pointer into TLS: .NET NativeAOT keeps its
++    // Thread objects in TLS and links them from a global ThreadStore, so the
++    // next GC suspension reads a freed handle and abort()s. The surplus is
++    // never touched, so it costs virtual address space only.
++    uint32_t mask = 0xfffff;
+     return (s+mask)&~mask;
+ }
+

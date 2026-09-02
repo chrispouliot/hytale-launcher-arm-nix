@@ -1,0 +1,92 @@
+--- a/FEXCore/Source/Interface/Config/Config.json.in
++++ b/FEXCore/Source/Interface/Config/Config.json.in
+@@ -467,6 +467,15 @@
+           "Can be dangerous due to aligned loadstores through the same code now become non-atomic."
+         ]
+       },
++      "HalfBarrierTSOAlways": {
++        "Type": "bool",
++        "Default": "false",
++        "Desc": [
++          "When TSO emulation is enabled, emit scalar loads and stores directly in the half-barrier form",
++          "(plain load/store plus DMB) instead of acquire/release instructions that are backpatched on SIGBUS.",
++          "Avoids the unaligned-access SIGBUS path and live code patching entirely, at some throughput cost."
++        ]
++      },
+       "StrictInProcessSplitLocks": {
+         "Type": "bool",
+         "Default": "false",
+--- a/FEXCore/Source/Interface/Context/Context.h
++++ b/FEXCore/Source/Interface/Context/Context.h
+@@ -348,6 +348,7 @@
+     FEX_CONFIG_OPT(Is64BitMode, IS64BIT_MODE);
+     FEX_CONFIG_OPT(TSOEnabled, TSOENABLED);
+     FEX_CONFIG_OPT(VectorTSOEnabled, VECTORTSOENABLED);
++    FEX_CONFIG_OPT(HalfBarrierTSOAlways, HALFBARRIERTSOALWAYS);
+     FEX_CONFIG_OPT(MemcpySetTSOEnabled, MEMCPYSETTSOENABLED);
+     FEX_CONFIG_OPT(SMCChecks, SMCCHECKS);
+     FEX_CONFIG_OPT(MaxInstPerBlock, MAXINST);
+@@ -430,6 +431,11 @@
+     return VectorAtomicTSOEmulationEnabled;
+   }
+
++  // If scalar TSO loads/stores should be emitted in the half-barrier form up front.
++  bool IsHalfBarrierTSOAlways() const {
++    return AtomicTSOEmulationEnabled && Config.HalfBarrierTSOAlways;
++  }
++
+   // If atomic-based TSO emulation is enabled for memcpy operations.
+   bool IsMemcpyAtomicTSOEnabled() const {
+     return MemcpyAtomicTSOEmulationEnabled;
+--- a/FEXCore/Source/Interface/Core/JIT/MemoryOps.cpp
++++ b/FEXCore/Source/Interface/Core/JIT/MemoryOps.cpp
+@@ -776,7 +776,23 @@
+     LOGMAN_THROW_A_FMT(Op->OffsetType == IR::MemOffsetType::SXTX, "unexpected offset type");
+   }
+
+-  if (CTX->HostFeatures.SupportsTSOImm9 && Op->Class == IR::RegClass::GPR) {
++  if (CTX->IsHalfBarrierTSOAlways() && Op->Class == IR::RegClass::GPR && OpSize != IR::OpSize::i8Bit) {
++    // Same code the SIGBUS handler would backpatch to (LDUR + DMB ISHLD),
++    // emitted up front: no unaligned-access fault, no live code patching.
++    const auto Dst = GetReg(Node);
++    uint64_t Offset = 0;
++    if (!Op->Offset.IsInvalid()) {
++      bool IsInline = IsInlineConstant(Op->Offset, &Offset);
++      LOGMAN_THROW_A_FMT(IsInline, "expected immediate");
++    }
++    switch (OpSize) {
++    case IR::OpSize::i16Bit: ldurh(Dst, MemReg, Offset); break;
++    case IR::OpSize::i32Bit: ldur(Dst.W(), MemReg, Offset); break;
++    case IR::OpSize::i64Bit: ldur(Dst.X(), MemReg, Offset); break;
++    default: LOGMAN_MSG_A_FMT("Unhandled LoadMemTSO size: {}", OpSize); break;
++    }
++    dmb(ARMEmitter::BarrierScope::ISHLD);
++  } else if (CTX->HostFeatures.SupportsTSOImm9 && Op->Class == IR::RegClass::GPR) {
+     const auto Dst = GetReg(Node);
+     uint64_t Offset = 0;
+     if (!Op->Offset.IsInvalid()) {
+@@ -1787,7 +1803,23 @@
+     LOGMAN_THROW_A_FMT(Op->OffsetType == IR::MemOffsetType::SXTX, "unexpected offset type");
+   }
+
+-  if (CTX->HostFeatures.SupportsTSOImm9 && Op->Class == IR::RegClass::GPR) {
++  if (CTX->IsHalfBarrierTSOAlways() && Op->Class == IR::RegClass::GPR && OpSize != IR::OpSize::i8Bit) {
++    // Same code the SIGBUS handler would backpatch to (DMB ISH + STUR),
++    // emitted up front: no unaligned-access fault, no live code patching.
++    const auto Src = GetZeroableReg(Op->Value);
++    uint64_t Offset = 0;
++    if (!Op->Offset.IsInvalid()) {
++      bool IsInline = IsInlineConstant(Op->Offset, &Offset);
++      LOGMAN_THROW_A_FMT(IsInline, "expected immediate");
++    }
++    dmb(ARMEmitter::BarrierScope::ISH);
++    switch (OpSize) {
++    case IR::OpSize::i16Bit: sturh(Src, MemReg, Offset); break;
++    case IR::OpSize::i32Bit: stur(Src.W(), MemReg, Offset); break;
++    case IR::OpSize::i64Bit: stur(Src.X(), MemReg, Offset); break;
++    default: LOGMAN_MSG_A_FMT("Unhandled StoreMemTSO size: {}", OpSize); break;
++    }
++  } else if (CTX->HostFeatures.SupportsTSOImm9 && Op->Class == IR::RegClass::GPR) {
+     const auto Src = GetZeroableReg(Op->Value);
+     uint64_t Offset = 0;
+     if (!Op->Offset.IsInvalid()) {
