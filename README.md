@@ -3,7 +3,7 @@
 Hytale on **aarch64 NixOS**. Tested on an ASUS Zenbook A14 (Snapdragon X2 Elite,
 Adreno X2‑90, Mesa 26.2). It plays!
 
-- **Launcher** (Go/Wails, x86_64): runs under the same patched FEX, with its
+- **Launcher** (Go/Wails, x86_64): runs under the same **patched FEX**, with its
   own FEX config directory and FEXServer.
 - **Client** (.NET 10 NativeAOT, x86_64): runs under a **patched FEX** with a
   nixpkgs x86_64 userland and FEX's GL thunk (native Adreno driver).
