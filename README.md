@@ -70,9 +70,22 @@ work). Afterwards: `hytale`, or the *Hytale* desktop entry.
 | `programs.fex.users` | `[ ]` | Users that get that config file. |
 | `programs.fex.binBash` | `false` | Symlink `/bin/bash` (Steam's scripts assume it). |
 | `programs.hytale.enable` | `false` | Everything Hytale. |
+| `programs.hytale.environment` | `{ }` | Runtime knobs (table below) exported by the `hytale` wrapper, so they also apply to the desktop entry. |
 | `programs.hytale.coredumps` | `false` | Raise systemd‑coredump caps so FEX dumps are complete (debugging only). |
 
 ### Runtime knobs (environment variables, all optional)
+
+Set them per run in the shell (`HYTALE_FEX_STACKCHK=1 hytale`) or
+declaratively:
+
+```nix
+programs.hytale.environment = {
+  DOTNET_GCgen0size = "0x40000000";
+};
+```
+
+Every consumer uses `${VAR:-default}`, so a variable set in the launching
+shell overrides both the declared value and the built‑in default.
 
 | Variable | Default | Effect |
 |---|---|---|

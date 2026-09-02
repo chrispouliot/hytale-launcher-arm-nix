@@ -833,6 +833,10 @@ let
     name = "hytale";
     runtimeInputs = [ pkgs.coreutils pkgs.xdg-utils ];
     text = ''
+      # programs.hytale.environment (declarative knobs; a shell export still wins
+      # because every consumer below uses ''${VAR:-default}).
+      ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "if [ -z \"\${${k}+x}\" ]; then export ${k}=${lib.escapeShellArg v}; fi") cfg.environment)}
+
       data=''${XDG_DATA_HOME:-$HOME/.local/share}/Hytale
       cache=''${XDG_CACHE_HOME:-$HOME/.cache}/hytale
       mkdir -p "$cache/fex" "$data/tmp"
@@ -922,6 +926,22 @@ in
 {
   options.programs.hytale = {
     enable = lib.mkEnableOption "Hytale on aarch64: x86_64 launcher and client under FEX, native server";
+
+    environment = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = { };
+      example = lib.literalExpression ''
+        {
+          DOTNET_GCgen0size = "0x40000000";
+          HYTALE_FEX_VIDEO = "wayland";
+        }
+      '';
+      description = ''
+        Runtime knobs (see README) exported by the `hytale` wrapper, so they
+        also apply to the desktop entry. A variable already set in the
+        launching shell takes precedence.
+      '';
+    };
 
     coredumps = lib.mkOption {
       type = lib.types.bool;
