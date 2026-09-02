@@ -1,13 +1,13 @@
-# hytale-arm
+# Hytale Launcher for ARM Linux/NixOS
 
 Hytale on **aarch64 NixOS**. Tested on an ASUS Zenbook A14 (Snapdragon X2 Elite,
-Adreno X2‑90, Mesa 26.2). It plays.
+Adreno X2‑90, Mesa 26.2). It plays!
 
-- **Launcher** (Go/Wails, x86_64): runs under the same patched FEX, with its
+- **Launcher** (Go/Wails, x86_64): runs under the same **patched FEX**, with its
   own FEX config directory and FEXServer.
 - **Client** (.NET 10 NativeAOT, x86_64): runs under a **patched FEX** with a
   nixpkgs x86_64 userland and FEX's GL thunk (native Adreno driver).
-- **Server** (Java): runs **natively** (Temurin 25, aarch64) — the jar's
+- **Server** (Java): runs **natively** (Temurin 25, aarch64) - the jar's
   `linux-x64` natives are replaced by aarch64 builds (quiche 0.29.3 with the
   Hypixel‑fork additions, RocksDB, zstd, Netty QUIC, JLine).
 
@@ -52,20 +52,20 @@ Two things are pinned, differently:
 The build recipe drifting far from 2608 is the residual risk (e.g. a cmake flag
 2608 does not know); that would fail at build time, not at run time.
 
-`programs.hytale.enable` also turns on `programs.fex` — the FEX‑x86_64/FEX‑x86
-binfmt registrations — because the launcher starts the client and the server
+`programs.hytale.enable` also turns on `programs.fex` - the FEX‑x86_64/FEX‑x86
+binfmt registrations - because the launcher starts the client and the server
 through the kernel's binfmt shim, and the shim's hook is what puts the client
 on its emulator setup and swaps in the native server JRE.
 
 Hytale is siloed: its whole process tree runs on the patched FEX‑2608 with its
 own config directory and FEXServer. Everything else (Steam…) reaches the
 shim's default interpreter, `programs.fex.package`, which is **stock nixpkgs
-FEX** — newer, stripped, and not carrying patches validated on one game. To
+FEX** - newer, stripped, and not carrying patches validated on one game. To
 run other programs on the patched build anyway:
 `programs.fex.package = config.programs.hytale.fexPackage;`.
 
 `nixos-rebuild switch` builds FEX (with patches), an aarch64 quiche and
-the Java server wrapper — the first build takes a while. The x86_64 client
+the Java server wrapper - the first build takes a while. The x86_64 client
 userland (glibc, X11, audio, codecs…) is plain nixpkgs `x86_64-linux` and comes
 from cache.nixos.org; if something in it ever needs building locally, add
 `nix.settings.extra-platforms = [ "x86_64-linux" ]` (the FEX binfmt makes that
@@ -112,10 +112,10 @@ shell overrides both the declared value and the built‑in default.
 
 ### Logs
 
-- `~/.cache/hytale/fex-client.log` — FEX/client stderr of the last run
-- `~/.local/share/Hytale/UserData/Logs/*_client.log` — the client's own log
-- `~/.cache/hytale/guest-objects.txt` — guest loader view, only with `HYTALE_FEX_STACKCHK=1`
-- `coredumpctl list` — with `programs.hytale.coredumps = true` and `ulimit -c unlimited`, FEX dumps are complete and symbolised (`RelWithDebInfo`, not stripped)
+- `~/.cache/hytale/fex-client.log` - FEX/client stderr of the last run
+- `~/.local/share/Hytale/UserData/Logs/*_client.log` - the client's own log
+- `~/.cache/hytale/guest-objects.txt` - guest loader view, only with `HYTALE_FEX_STACKCHK=1`
+- `coredumpctl list` - with `programs.hytale.coredumps = true` and `ulimit -c unlimited`, FEX dumps are complete and symbolised (`RelWithDebInfo`, not stripped)
 
 ## Status
 
@@ -141,7 +141,7 @@ general bugs, not Hytale‑specific hacks.
 
 | Patch | Kind | What |
 |---|---|---|
-| `fex-sigreturn-insyscall` | **bug** | `RestoreFrame_*` restored `InSyscallInfo` only when the guest changed RIP. After a normal `rt_sigreturn` the marker written by the sigreturn syscall op survived, so the next signal landing in JIT code skipped spilling the live registers (RSP included) and built its frame from stale state one call level up — over live stack data. The root cause of nearly everything; reproducer and report in `upstream/`. |
+| `fex-sigreturn-insyscall` | **bug** | `RestoreFrame_*` restored `InSyscallInfo` only when the guest changed RIP. After a normal `rt_sigreturn` the marker written by the sigreturn syscall op survived, so the next signal landing in JIT code skipped spilling the live registers (RSP included) and built its frame from stale state one call level up - over live stack data. The root cause of nearly everything; reproducer and report in `upstream/`. |
 | `fex-hostcall-window` | bug | JIT ops that call host code (`Thunk`, `CPUID`, `XGetBV`, `ThreadRemoveCodeEntry`, `MonoBackpatcherWrite`) spilled the guest state but never told the signal handler; a signal after the host call returned "spilled" the callee's leftover host registers over it. `SpillSRA` also always overwrote FPRs/flags. |
 | `fex-required-handlers-mask` | bug | FEX's own SIGSEGV/SIGBUS/SIGILL host handlers ran with async signals unmasked; a signal nesting inside the unaligned‑access backpatcher (constant on the X2 Elite's 16‑byte fault granularity) was deferred and delivered from host context. |
 | `fex-torn-fastpath` | bug | The `ret`/L1 fast paths `ldp` a (guest RIP, host address) pair and only compare the RIP half; another thread clearing the entry (L1 word‑wise, call‑ret stack via `madvise`) gives a matching RIP with a zero host address → `ret` to 0. |
@@ -149,15 +149,6 @@ general bugs, not Hytale‑specific hacks.
 | `fex-gl-thunk-texstorage-ext` | bug | GL thunk lacked `GL_EXT_texture_storage` (`glTexStorage{1,2,3}DEXT`) although Mesa advertises it → `glXGetProcAddress` returned NULL → call to 0. |
 | `fex-abort-on-host-fault` | diagnostic | A synchronous fault in FEX's own host code was forwarded to the guest (which then resumed past the syscall with the host operation abandoned); abort instead so the core has the frames. |
 | `fex-halfbarrier-tso-always` | option | `HalfBarrierTSOAlways`: emit the barrier form of scalar TSO accesses up front. Off by default. |
-
-### box64 (`upstream/box64`, against master `65702d6`; not used by the module)
-
-| Patch | What |
-|---|---|
-| `box64-strlcpy-semantics` | `my_strlcpy`/`my_strlcat` wrote `size` bytes (strncpy padding) instead of `min(strlen, size−1)+1`; with SDL3's `SDL_GetGamepadMappings` size slip that overflows the heap on startup. |
-| `box64-tls-1mb` | Per‑thread TLS blocks were relocated when a later TLS‑bearing `dlopen` (libquiche) crossed the 64 KB rounding boundary; NativeAOT keeps its `Thread` objects in TLS. |
-| `box64-thread-key-order` | box64's per‑thread key destructor ran before the guest's (key creation order), freeing the emulator/TLS block first. |
-| `box64-pthread-kill-diag` | Diagnostic: log `pthread_kill` failures, turn a NULL handle into `ESRCH`. |
 
 ### Server side (in `modules/hytale.nix`)
 
