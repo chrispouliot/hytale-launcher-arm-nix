@@ -896,22 +896,8 @@ let
       exec ${fex}/bin/FEX "$launcher" "$@"
     '';
   };
-  # Desktop entry. The launcher zip is just the Wails binary; its app icon is
-  # embedded as a PNG resource, so pull the largest PNG out of the ELF.
-  hytaleIcon = pkgs.runCommand "hytale-icon" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-    mkdir -p $out/share/icons/hicolor/256x256/apps
-    python3 - "${launcherSeed}/hytale-launcher" "$out/share/icons/hicolor/256x256/apps/hytale.png" <<'PY'
-    import sys, re
-    data = open(sys.argv[1], 'rb').read()
-    best = b""
-    for m in re.finditer(b"\x89PNG\r\n\x1a\n", data):
-        end = data.find(b"IEND", m.start())
-        if end == -1: continue
-        png = data[m.start():end + 8]
-        if len(png) > len(best): best = png
-    if best: open(sys.argv[2], 'wb').write(best)
-    else: print("no embedded PNG found; desktop entry will use a generic icon")
-    PY
+  hytaleIcon = pkgs.runCommand "hytale-icon" { } ''
+    install -Dm444 ${../assets/hytale.svg} $out/share/icons/hicolor/scalable/apps/hytale.svg
   '';
   hytaleDesktop = pkgs.makeDesktopItem {
     name = "hytale";
