@@ -169,11 +169,10 @@ general bugs, not Hytale‑specific hacks.
 
 ## Upstream
 
-`upstream/` holds the FEX report for the sigreturn bug, the minimal diff
+`upstream/` holds the current FEX report for the sigreturn bug, the minimal diff
 (applies to 2608 and current `main`), a self‑contained reproducer
 (`fex-sigframe-repro.c`: fails on the 4th signal on FEX‑2608, 300k signals
-clean with the fix), and the box64 patches. The other FEX patches and the SDL3
-`SDL_GetGamepadMappings` size slip are worth reporting too.
+clean with the fix)
 
 ## Layout
 
