@@ -1,7 +1,7 @@
 # FEX for the whole system: binfmt_misc registrations for x86_64 and i386 ELF
 # binaries through a small shim, optional global RootFS config for users.
 # `hytaleArm` is provided by the flake (nixosModules.default sets
-# _module.args.hytaleArm = { nixpkgsFex = <nixpkgs with fex 2608>; }).
+# _module.args.hytaleArm = { nixpkgsFex = <nixpkgs with the FEX recipe>; }).
 { hytaleArm, config, pkgs, lib, ... }:
 
 let

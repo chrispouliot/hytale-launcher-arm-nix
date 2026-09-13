@@ -25,7 +25,7 @@
        IgnoreMask = 0;
 --- a/FEXCore/Source/Interface/Core/JIT/BranchOps.cpp
 +++ b/FEXCore/Source/Interface/Core/JIT/BranchOps.cpp
-@@ -297,7 +297,8 @@
+@@ -300,7 +300,8 @@
    // Still without overwriting registers that matter
    // 16bit LoadConstant to be a single instruction
    // This gives the signal handler a value to check to see if we are in a syscall at all
@@ -34,8 +34,8 @@
 +  LoadConstant(ARMEmitter::Size::i64Bit, ARMEmitter::Reg::r0, (GPRSpillMask & 0xFFFF) | 0x80000000ULL);
    str(ARMEmitter::XReg::x0, STATE, offsetof(FEXCore::Core::CpuStateFrame, InSyscallInfo));
 
-   uint64_t SPOffset = AlignUp(FEXCore::HLE::SyscallArguments::MAX_ARGS * 8, 16);
-@@ -358,6 +359,11 @@
+   ldr(ARMEmitter::XReg::x0, STATE, offsetof(FEXCore::Core::CpuStateFrame, Pointers.SyscallHandlerObj));
+@@ -340,6 +341,11 @@
                            .NZCV = false,
                          });
 
@@ -47,7 +47,7 @@
    PushDynamicRegs(TMP1);
 
    mov(ARMEmitter::Size::i64Bit, ARMEmitter::Reg::r0, GetReg(Op->ArgPtr));
-@@ -375,6 +381,7 @@
+@@ -357,6 +363,7 @@
    FillStaticRegs({
      .NZCV = false,
    });
@@ -55,7 +55,7 @@
  }
 
  DEF_OP(ValidateCode) {
-@@ -429,6 +436,11 @@
+@@ -419,6 +426,11 @@
    PushDynamicRegs(TMP4);
    SpillStaticRegs(TMP4);
 
@@ -67,7 +67,7 @@
    // Arguments are passed as follows:
    // X0: Thread
    // X1: RIP
-@@ -444,6 +456,7 @@
+@@ -431,6 +443,7 @@
      blr(ARMEmitter::Reg::r2);
    }
    FillStaticRegs();
@@ -75,19 +75,19 @@
 
    // Fix the stack and any values that were stepped on
    PopDynamicRegs();
-@@ -459,6 +472,11 @@
+@@ -445,6 +458,11 @@
+
    PushDynamicRegs(TMP4);
    SpillStaticRegs(TMP4);
-
++
 +  // Everything is in State now. Tell the signal handler so that a signal landing in
 +  // this host-call window does not spill the host callee's leftover registers over it.
 +  LoadConstant(ARMEmitter::Size::i64Bit, TMP4, 0x8000FFFFULL);
 +  str(TMP4, STATE, offsetof(FEXCore::Core::CpuStateFrame, InSyscallInfo));
-+
+
    // x0 = CPUID Handler
    // x1 = CPUID Function
-   // x2 = CPUID Leaf
-@@ -482,6 +500,7 @@
+@@ -469,6 +487,7 @@
    }
 
    FillStaticRegs();
@@ -95,7 +95,7 @@
 
    PopDynamicRegs();
 
-@@ -499,6 +518,11 @@
+@@ -486,6 +505,11 @@
    PushDynamicRegs(TMP4);
    SpillStaticRegs(TMP4);
 
@@ -107,7 +107,7 @@
    mov(ARMEmitter::Size::i32Bit, ARMEmitter::Reg::r1, GetReg(Op->Function));
 
    // x0 = CPUID Handler
-@@ -516,6 +540,7 @@
+@@ -503,6 +527,7 @@
    }
 
    FillStaticRegs();

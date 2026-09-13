@@ -20,7 +20,7 @@ usual. You need a Hytale account like anyone else.
 ```nix
 {
   inputs.hytale-arm.url = "github:chrispouliot/hytale-launcher-arm-nix";
-  # optional: reuse a nixpkgs you already track (must ship fex 2608)
+  # optional: reuse a nixpkgs you already track (must provide a compatible FEX recipe)
   # inputs.hytale-arm.inputs.nixpkgs-fex.follows = "nixpkgs-unstable";
 
   outputs = { nixpkgs, hytale-arm, ... }: {
@@ -39,28 +39,28 @@ usual. You need a Hytale account like anyone else.
 
 Two things are pinned, differently:
 
-- **FEX source**: the module fetches the `FEX-2608` tag itself (same source
-  block and hash as nixpkgs' `fex` package) and applies the eight patches to
-  it. A nixpkgs that ships a newer FEX changes nothing here.
+- **FEX source**: the module fetches the `FEX-2609` tag itself, with a hash
+  covering its selectively fetched submodules and cleanup, and applies the
+  eight patches to it. Updating nixpkgs does not change this source pin.
 - **nixpkgs (`nixpkgs-fex`)**: provides the FEX build recipe and the x86_64
-  guest userland. The committed `flake.lock` holds a revision that is known to
-  build; it only moves when you run `nix flake update`. If you want it fixed
-  regardless of lock files, set the input URL to a revision (see the comment
+  guest userland. The committed `flake.lock` retains the recipe and dependencies
+  used for the previous 2608 build; it only moves when you run `nix flake update`.
+  If you want it fixed regardless of lock files, set the input URL to a revision (see the comment
   in `flake.nix`). The revision your own system already uses is in your
   `flake.lock`: `jq -r '.nodes["nixpkgs-fex"].locked.rev' flake.lock`.
 
-The build recipe drifting far from 2608 is the residual risk (e.g. a cmake flag
-2608 does not know); that would fail at build time, not at run time.
+The build recipe drifting far from 2609 can cause build failures (e.g. a
+cmake flag 2609 does not know).
 
 `programs.hytale.enable` also turns on `programs.fex` - the FEX‑x86_64/FEX‑x86
 binfmt registrations - because the launcher starts the client and the server
 through the kernel's binfmt shim, and the shim's hook is what puts the client
 on its emulator setup and swaps in the native server JRE.
 
-Hytale is siloed: its whole process tree runs on the patched FEX‑2608 with its
+Hytale is siloed: its whole process tree runs on the patched FEX‑2609 with its
 own config directory and FEXServer. Everything else (Steam…) reaches the
 shim's default interpreter, `programs.fex.package`, which is **stock nixpkgs
-FEX** - newer, stripped, and not carrying patches validated on one game. To
+FEX** at the version supplied by `nixpkgs-fex`, without Hytale's patches. To
 run other programs on the patched build anyway:
 `programs.fex.package = config.programs.hytale.fexPackage;`.
 
@@ -77,7 +77,7 @@ work). Afterwards: `hytale`, or the *Hytale* desktop entry.
 |---|---|---|
 | `programs.fex.enable` | `false` (`true` with Hytale) | FEX‑x86_64 / FEX‑x86 binfmt registrations through a hook‑capable shim. Do not combine with `boot.binfmt.emulatedSystems = [ "x86_64-linux" ]` (it registers the wrong name). |
 | `programs.fex.package` | nixpkgs `fex` | The FEX used by the shim's default path and as `FEXInterpreter` (programs outside Hytale). |
-| `programs.hytale.fexPackage` | read‑only | The patched FEX‑2608 build Hytale runs on; assign it to `programs.fex.package` to opt other programs in. |
+| `programs.hytale.fexPackage` | read‑only | The patched FEX‑2609 build Hytale runs on; assign it to `programs.fex.package` to opt other programs in. |
 | `programs.fex.rootfs` | `null` | Global RootFS (e.g. FEX's Ubuntu image) for *other* x86 programs such as Steam; written to `~/.fex-emu/Config.json` for `programs.fex.users`. Hytale does not use it. |
 | `programs.fex.users` | `[ ]` | Users that get that config file. |
 | `programs.fex.binBash` | `false` | Symlink `/bin/bash` (Steam's scripts assume it). |
@@ -137,7 +137,12 @@ shell overrides both the declared value and the built‑in default.
 Everything here was found by debugging this game; the emulator patches are
 general bugs, not Hytale‑specific hacks.
 
-### FEX (`patches/fex`, against FEX‑2608)
+### FEX (`patches/fex`, against FEX‑2609)
+
+For the 2609 update, the code-buffer and host-call patches have refreshed
+context for upstream changes; their added logic is unchanged. All eight
+patches apply in module order. A Nix build and A14 gameplay validation are
+still required before treating this update as runtime-tested.
 
 | Patch | Kind | What |
 |---|---|---|

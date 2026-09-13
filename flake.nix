@@ -4,11 +4,11 @@
   inputs = {
     # nixpkgs for the emulator recipe and the x86_64 guest userland.
     #
-    # The FEX *source* is pinned to the FEX-2608 tag inside the module (the
+    # The FEX *source* is pinned to the FEX-2609 tag inside the module (the
     # eight patches are written against it), so a nixpkgs that moves to a
     # newer FEX does not change what gets built -- only the build recipe and
-    # the guest libraries come from here. The committed flake.lock pins this to
-    # a revision known to build; `nix flake update` moves it. To pin it
+    # the guest libraries come from here. The committed flake.lock retains the
+    # recipe used for 2608; `nix flake update` moves it. To pin it
     # explicitly, replace the branch with a revision:
     #   nixpkgs-fex.url = "github:NixOS/nixpkgs/<rev>";
     # and to reuse a nixpkgs you already track:

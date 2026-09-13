@@ -9,7 +9,7 @@ let
   # reach the binfmt shim's default (programs.fex.package) instead -- the
   # wrapper's FEX_BINFMT_HOOK is what routes Hytale's process tree here.
   fexPkgs = import hytaleArm.nixpkgsFex { system = pkgs.stdenv.hostPlatform.system; };
-  # FEX 2608 + one JIT option (HalfBarrierTSOAlways, env FEX_HALFBARRIERTSOALWAYS):
+  # FEX 2609 + one JIT option (HalfBarrierTSOAlways, env FEX_HALFBARRIERTSOALWAYS):
   # emit scalar TSO loads/stores directly as plain ldur/stur + DMB -- the form
   # FEX's SIGBUS handler otherwise backpatches in after an unaligned
   # acquire/release access faults. On the Snapdragon X2 Elite (16-byte fault
@@ -19,14 +19,14 @@ let
   # footprint, no live code modification, TSO semantics preserved.
   fex = fexPkgs.fex.overrideAttrs (old: {
     # Pin the source the patches are written against, independently of the
-    # FEX version nixpkgs ships: same src block as nixpkgs' fex 2608 (the
-    # partial submodule init in postFetch is part of the hash).
-    version = "2608";
+    # FEX version nixpkgs ships. Keep the selective submodule fetch from the
+    # pinned nixpkgs recipe; postFetch cleanup is part of the source hash.
+    version = "2609";
     src = pkgs.fetchFromGitHub {
       owner = "FEX-Emu";
       repo = "FEX";
-      tag = "FEX-2608";
-      hash = "sha256-2NdkQpzqDkM/fEW8QYS05KU3JPJeLw4gliryqdOJ3vE=";
+      tag = "FEX-2609";
+      hash = "sha256-L6dy8FBT/4mHBKq/nifdYREIb6C/eG8Ph6FP9ET4Syc=";
       leaveDotGit = true;
       postFetch = ''
         cd $out
@@ -938,7 +938,7 @@ in
       type = lib.types.package;
       readOnly = true;
       description = ''
-        The patched FEX-2608 build Hytale runs on (read-only). Other x86
+        The patched FEX-2609 build Hytale runs on (read-only). Other x86
         programs use `programs.fex.package` (stock nixpkgs FEX by default);
         set `programs.fex.package = config.programs.hytale.fexPackage` to run
         them on this build as well.

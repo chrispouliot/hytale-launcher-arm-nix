@@ -1,6 +1,6 @@
 --- a/FEXCore/Source/Interface/Core/SharedCodeBufferManager.h
 +++ b/FEXCore/Source/Interface/Core/SharedCodeBufferManager.h
-@@ -19,6 +19,18 @@
+@@ -20,6 +20,18 @@
  }
 
  namespace FEXCore::CPU {
@@ -17,8 +17,8 @@
 +bool IsAddressInAnyLiveCodeBuffer(uintptr_t Address);
 +
  struct CodeBuffer {
-   uint8_t* Ptr;
-   size_t AllocatedSize; // including guard page; see UsableSize()
+   fextl::unique_ptr<GuestToHostMap> LookupCache;
+
 --- a/FEXCore/Source/Interface/Core/SharedCodeBufferManager.cpp
 +++ b/FEXCore/Source/Interface/Core/SharedCodeBufferManager.cpp
 @@ -11,7 +11,56 @@
@@ -78,10 +78,10 @@
  static constexpr size_t INITIAL_CODE_SIZE = 1024 * 1024 * 16;
  // We don't want to move above 128MB atm because that means we will have to encode longer jumps
  static constexpr size_t MAX_CODE_SIZE = 1024 * 1024 * 128;
-@@ -34,9 +83,13 @@
-   FEXCore::Allocator::VirtualTHPControl(Ptr, Size, FEXCore::Allocator::THPControl::Enable);
+@@ -37,9 +86,13 @@
 
-   LookupCache = fextl::make_unique<GuestToHostMap>();
+   CodeBufferEnd = Ptr + UsableSize();
+   CodeBufferOffset = Ptr;
 +
 +  // Usable range only: the guard page is never executed.
 +  RegisterLiveCodeBuffer(reinterpret_cast<uintptr_t>(Ptr), LastPageAddr);
