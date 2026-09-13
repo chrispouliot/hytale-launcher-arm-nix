@@ -140,9 +140,11 @@ general bugs, not Hytale‑specific hacks.
 ### FEX (`patches/fex`, against FEX‑2609)
 
 For the 2609 update, the code-buffer and host-call patches have refreshed
-context for upstream changes; their added logic is unchanged. All eight
-patches apply in module order. A Nix build and A14 gameplay validation are
-still required before treating this update as runtime-tested.
+context for upstream changes; their added logic is unchanged. The half-barrier
+option also declares `AffectsCodeGen`, as required by 2609's configuration
+generator. All eight patches apply in module order, and the configuration
+generator completes successfully. A full Nix build and A14 gameplay validation
+are still required before treating this update as runtime-tested.
 
 | Patch | Kind | What |
 |---|---|---|

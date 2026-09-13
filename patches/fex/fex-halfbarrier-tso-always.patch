@@ -1,12 +1,13 @@
 --- a/FEXCore/Source/Interface/Config/Config.json.in
 +++ b/FEXCore/Source/Interface/Config/Config.json.in
-@@ -467,6 +467,15 @@
+@@ -467,6 +467,16 @@
            "Can be dangerous due to aligned loadstores through the same code now become non-atomic."
          ]
        },
 +      "HalfBarrierTSOAlways": {
 +        "Type": "bool",
 +        "Default": "false",
++        "AffectsCodeGen": "true",
 +        "Desc": [
 +          "When TSO emulation is enabled, emit scalar loads and stores directly in the half-barrier form",
 +          "(plain load/store plus DMB) instead of acquire/release instructions that are backpatched on SIGBUS.",
