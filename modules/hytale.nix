@@ -767,15 +767,28 @@ let
 
   # binfmt hook (see fex-binfmt in fex.nix). Every x86 exec in a process tree
   # that carries FEX_BINFMT_HOOK lands here (launcher updater, WebKit helper
-  # processes, HytaleClient). Only HytaleClient is redirected; everything else
-  # goes to FEX with argv and env untouched, so the launcher's tree is never
-  # modified and wharf patching always sees the official binaries.
+  # processes, downloaded JRE, HytaleClient).
+  #
+  # The official launcher validates a freshly downloaded x86_64 JRE by
+  # executing its bin/java before the game is installed. Running that JRE
+  # through FEX currently trips the guest glibc loader in _dl_get_origin.
+  # Redirect those validation execs to the same native aarch64 Java wrapper
+  # that we already use for the actual Hytale server.
+  #
+  # HytaleClient still gets its special FEX/Box64 handling below. Everything
+  # else continues through FEX untouched.
   hook = pkgs.writeShellScript "hytale-binfmt-hook" ''
     # argv: <pathname passed to execve> <original argv[0]> <args...>
     target=$(${pkgs.coreutils}/bin/readlink -f "/proc/$$/fd/''${FEX_EXECVEFD:-0}" 2>/dev/null || printf '%s' "$1")
     case $target in
-      */Hytale/install/*/package/game/*/Client/HytaleClient) ;;
-      *) exec ${fex}/bin/FEX "$@" ;;
+      */Hytale/install/*/package/jre/*/bin/java)
+        exec ${serverJava} "''${@:3}"
+        ;;
+      */Hytale/install/*/package/game/*/Client/HytaleClient)
+        ;;
+      *)
+        exec ${fex}/bin/FEX "$@"
+        ;;
     esac
 
     # Launcher passes `--java-exec <its x86 JRE>`; swap in the native one.
