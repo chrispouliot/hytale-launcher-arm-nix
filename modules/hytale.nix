@@ -727,27 +727,18 @@ let
     ln -s ${lib.getLib pkgsx86.vulkan-loader}/lib/libvulkan.so.1 $out/usr/lib/x86_64-linux-gnu/libvulkan.so.1
   '';
 
-  # Seed only. The launcher self-updates into ~/.local/share/Hytale and the
-  # wrapper prefers that copy. Version + sha256 (hex -> SRI) from
-  # https://launcher.hytale.com/version/release/launcher.json
-  launcherVersion = "2026.08.28-3d62362";
-  launcherSeed = pkgs.stdenvNoCC.mkDerivation {
-    pname = "hytale-launcher-seed";
-    version = launcherVersion;
-    src = pkgs.fetchurl {
-      url = "https://launcher.hytale.com/builds/release/linux/amd64/hytale-launcher-${launcherVersion}.zip";
-      hash = "sha256-DLFvaRSfwilOkkdOz4rcnmsQTFQZvtIITmFBfhV67hg=";
-    };
-    nativeBuildInputs = [ pkgs.unzip ];
-    sourceRoot = ".";
-    dontFixup = true; # x86_64 ELF: no strip/patchelf on aarch64
-    installPhase = ''
-      mkdir -p $out
-      cp -r ./* $out/
-      rm -f $out/env-vars
-      chmod +x $out/hytale-launcher
-    '';
-  };
+  # The launcher is intentionally NOT fetched into the Nix store.
+  #
+  # Hytale removes old versioned launcher ZIPs, which used to make an otherwise
+  # unrelated `nixos-rebuild` fail when the pinned seed disappeared.  The
+  # wrapper below bootstraps the current launcher at runtime from Hytale's
+  # official release manifest, verifies the manifest-provided SHA-256, and
+  # installs it into the launcher's normal writable per-user package directory.
+  #
+  # Once bootstrapped, Hytale's own self-updater continues to populate this
+  # directory and the wrapper always prefers the newest installed copy.
+  launcherManifestUrl =
+    "https://launcher.hytale.com/version/release/launcher.json";
 
   # Private FEX config namespace. SetupClient() takes the RootFS from
   # whichever FEXServer answers <uid>.FEXServer.Socket -- Steam's, if it is
@@ -834,7 +825,13 @@ let
 
   hytale = pkgs.writeShellApplication {
     name = "hytale";
-    runtimeInputs = [ pkgs.coreutils pkgs.xdg-utils ];
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.curl
+      pkgs.jq
+      pkgs.unzip
+      pkgs.xdg-utils
+    ];
     text = ''
       # programs.hytale.environment (declarative knobs; a shell export still wins
       # because every consumer below uses ''${VAR:-default}).
@@ -850,12 +847,121 @@ let
       # Patch staging on the same filesystem as the install (not tmpfs /tmp).
       export TMPDIR=$data/tmp
 
-      # Prefer the launcher's self-updated copy over the Nix seed
-      # (glob order == date-version order).
-      launcher=${launcherSeed}/hytale-launcher
+      # Prefer an already-installed/self-updated launcher.  Version directories
+      # are date-prefixed, so normal glob ordering leaves the newest one last.
+      launcher=""
       for l in "$data"/install/release/package/launcher/*/hytale-launcher; do
-        [[ -x $l ]] && launcher=$l
+        [[ -x "$l" ]] && launcher="$l"
       done
+
+      # Fresh install: bootstrap the current official launcher at runtime.
+      #
+      # This deliberately happens outside the Nix build so routine Hytale
+      # launcher rotations cannot break `nixos-rebuild`.  The manifest and ZIP
+      # are both fetched over HTTPS, and the ZIP must match the SHA-256
+      # published in the manifest before it is installed.
+      if [[ -z "$launcher" ]]; then
+        manifest="$cache/launcher-release.json"
+        manifest_tmp="$manifest.tmp.$$"
+
+        echo "hytale: no installed launcher found; bootstrapping current release" >&2
+
+        curl \
+          --fail \
+          --location \
+          --retry 3 \
+          --retry-all-errors \
+          --output "$manifest_tmp" \
+          ${lib.escapeShellArg launcherManifestUrl}
+
+        mv -f "$manifest_tmp" "$manifest"
+
+        version="$(
+          jq -er '.version | select(type == "string" and length > 0)' \
+            "$manifest"
+        )"
+        url="$(
+          jq -er \
+            '.download_url.linux.amd64.url | select(type == "string" and length > 0)' \
+            "$manifest"
+        )"
+        expected_sha256="$(
+          jq -er \
+            '.download_url.linux.amd64.sha256 | select(type == "string" and length == 64)' \
+            "$manifest"
+        )"
+
+        if [[ ! "$version" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9A-Za-z]+$ ]]; then
+          echo "hytale: refusing unexpected launcher version from manifest: $version" >&2
+          exit 1
+        fi
+
+        case "$url" in
+          https://launcher.hytale.com/builds/release/linux/amd64/hytale-launcher-*.zip)
+            ;;
+          *)
+            echo "hytale: refusing unexpected launcher URL from manifest: $url" >&2
+            exit 1
+            ;;
+        esac
+
+        if [[ ! "$expected_sha256" =~ ^[0-9a-fA-F]{64}$ ]]; then
+          echo "hytale: refusing malformed launcher SHA-256 from manifest" >&2
+          exit 1
+        fi
+
+        package_parent="$data/install/release/package/launcher"
+        package_dir="$package_parent/$version"
+        package_tmp="$package_parent/.bootstrap-$version-$$"
+        archive="$data/tmp/hytale-launcher-$version.zip"
+        archive_tmp="$archive.tmp.$$"
+
+        mkdir -p "$package_parent"
+        rm -rf "$package_tmp"
+        mkdir -p "$package_tmp"
+
+        curl \
+          --fail \
+          --location \
+          --retry 3 \
+          --retry-all-errors \
+          --output "$archive_tmp" \
+          "$url"
+
+        actual_sha256="$(sha256sum "$archive_tmp" | cut -d' ' -f1)"
+        expected_sha256="$(
+          printf '%s' "$expected_sha256" | tr 'A-F' 'a-f'
+        )"
+
+        if [[ "$actual_sha256" != "$expected_sha256" ]]; then
+          echo "hytale: launcher SHA-256 mismatch" >&2
+          echo "  expected: $expected_sha256" >&2
+          echo "  actual:   $actual_sha256" >&2
+          rm -f "$archive_tmp"
+          rm -rf "$package_tmp"
+          exit 1
+        fi
+
+        mv -f "$archive_tmp" "$archive"
+        unzip -q "$archive" -d "$package_tmp"
+        rm -f "$package_tmp/env-vars"
+
+        if [[ ! -f "$package_tmp/hytale-launcher" ]]; then
+          echo "hytale: launcher ZIP did not contain hytale-launcher" >&2
+          rm -rf "$package_tmp"
+          exit 1
+        fi
+
+        chmod +x "$package_tmp/hytale-launcher"
+
+        # Publish only after download, hash verification, and extraction
+        # succeeded, so an interrupted bootstrap cannot leave a valid-looking
+        # partial launcher directory behind.
+        rm -rf "$package_dir"
+        mv "$package_tmp" "$package_dir"
+
+        launcher="$package_dir/hytale-launcher"
+      fi
 
       # The old design swapped shims into the game tree; a leftover there
       # shows up as "exec format error" from the launcher. Warn early.
